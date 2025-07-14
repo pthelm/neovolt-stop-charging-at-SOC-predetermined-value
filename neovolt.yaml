@@ -1,0 +1,81 @@
+###########################################################################
+########################### NEOVOLT.YAML ##################################
+###########################################################################
+#This script, titled neovolt.yaml, is in my case saved in the folder named packages and sets the SOC off peak top out level
+#The folder packages is referenced in the configuration yaml file as -  packages: !include_dir_named packages
+#
+# The template trigger captures the estimated PV output for the next day as predicted by Solcast at a predetermined time.
+# The Solcast add in is dynamically predicting future solar generation and I chose to capture the value just before 20:00
+# which is the time when my off peak rate starts.
+# The default Solcast sensor used is titled 'sensor.solcast_pv_forecast_forecast_tomorrow'
+# This is saved in a sensor named "SOC Adjusted Value for next day as predicted"
+#
+# My system comprises 10kw panels and the max output I see in summer is about 54 to 55 KWH
+# Therefore I start at checking if the predicted output is greater than 50 and set the target SOC as 10%
+# Then check if the prediction is greater than 45 and set the SOC as 20% and so on down to a prediction of less than 5%
+#
+# If Solcast feed becomes unavailable then the first if statement sets a default value for SOC. I chose a unique value 73 to readily highlight a problem
+# Also an else statement to cover the case if Solcast feed is out of range. Then set SOC to the value nominated of 100%
+
+
+template:
+  - trigger:
+      - platform: time
+        at: "21:50:00"
+    sensor:
+      - name: "PV output next day as predicted at End of Day"
+        unique_id: PV_output_next_day_as_predicted_at_End_of_Day
+        state_class: total
+        unit_of_measurement: kWh
+        device_class: energy
+        icon: mdi:transmission-tower-import
+        state: "{{ states('sensor.solcast_pv_forecast_forecast_tomorrow') }}"
+        availability: "{{ has_value('sensor.solcast_pv_forecast_forecast_tomorrow') }}"
+
+
+################################################################################################
+  - sensor:
+      - name: "SOC Adjusted Value for next day as predicted"
+        state: >
+          {% if states('sensor.pv_output_next_day_as_predicted_at_end_of_day') == 'unavailable' %}
+            73 {# If Solcast feed becomes unavailable then set default SOC to this value #}
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 50 %}
+            10
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 45 %}
+            20        
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 40 %}
+            30
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 35 %}
+            40
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 30 %}
+            50
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 25 %}
+            60
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 20 %}
+            70
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 15 %}
+            80
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 10 %}
+            90
+          {% elif states('sensor.pv_output_next_day_as_predicted_at_end_of_day')|float > 5 %}
+            100
+          {% else %}
+            100 {# If Solcast feed is out of range then set SOC to this value #}
+          {% endif %}
+        unit_of_measurement: "percent" # Replace with your preferred unit
+        device_class: "battery" # Replace "battery" with your preferred device class        
+################################################################################################ 
+# The automation below takes the nightly SOC top up level as determined above and loads it into the battery
+# sensor charge_cap using the service bytewatt.set_charge_cap
+#################################################################################################
+automation:
+  - alias: "set max SOC next day"
+  - trigger:
+#      - platform: time_pattern
+#        seconds: 30
+      - platform: time
+        at: "21:55:00"
+    action:
+      service: bytewatt.set_charge_cap
+      data:
+         charge_cap: "{{ states('sensor.soc_adjusted_value_for_next_day_as_predicted') }}" #Example: using sensor value 70
